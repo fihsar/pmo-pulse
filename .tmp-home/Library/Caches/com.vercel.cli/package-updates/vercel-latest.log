@@ -1,0 +1,15 @@
+[2026-05-30T06:18:20.582Z] [debug] Notifying parent we're ready
+[2026-05-30T06:18:20.583Z] [debug] Received message from parent: {
+  cacheFile: '/Users/fihsar/trae_projects/pmo-pulse/.tmp-home/Library/Caches/com.vercel.cli/package-updates/vercel-latest.json',
+  distTag: 'latest',
+  name: 'vercel',
+  updateCheckInterval: 86400000
+}
+[2026-05-30T06:18:20.583Z] [debug] Disconnecting from parent
+[2026-05-30T06:18:20.584Z] [debug] Checking lock file: /Users/fihsar/trae_projects/pmo-pulse/.tmp-home/Library/Caches/com.vercel.cli/package-updates/vercel-latest.lock
+[2026-05-30T06:18:20.584Z] [debug] Initializing lock file with pid 23058
+[2026-05-30T06:18:20.584Z] [debug] Fetching https://registry.npmjs.org/-/package/vercel/dist-tags
+[2026-05-30T06:18:20.858Z] [debug] Found dist tag "latest" with version "54.6.1"
+[2026-05-30T06:18:20.858Z] [debug] Writing cache file: /Users/fihsar/trae_projects/pmo-pulse/.tmp-home/Library/Caches/com.vercel.cli/package-updates/vercel-latest.json
+[2026-05-30T06:18:20.858Z] [debug] Releasing lock file: /Users/fihsar/trae_projects/pmo-pulse/.tmp-home/Library/Caches/com.vercel.cli/package-updates/vercel-latest.lock
+[2026-05-30T06:18:20.858Z] [debug] Worker finished successfully!
