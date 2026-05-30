@@ -64,6 +64,33 @@ create index if not exists idx_tasks_status on tasks(status);
 create index if not exists idx_tasks_due on tasks(due_date);
 create index if not exists idx_audit_actor on audit_log(actor_phone);
 
+alter table users enable row level security;
+alter table tasks enable row level security;
+alter table standups enable row level security;
+alter table raid_log enable row level security;
+alter table audit_log enable row level security;
+
+drop policy if exists "demo users readable" on users;
+drop policy if exists "demo tasks readable" on tasks;
+drop policy if exists "demo tasks updatable" on tasks;
+drop policy if exists "demo standups readable" on standups;
+drop policy if exists "demo raid readable" on raid_log;
+
+create policy "demo users readable" on users
+  for select to anon using (true);
+
+create policy "demo tasks readable" on tasks
+  for select to anon using (true);
+
+create policy "demo tasks updatable" on tasks
+  for update to anon using (true) with check (true);
+
+create policy "demo standups readable" on standups
+  for select to anon using (true);
+
+create policy "demo raid readable" on raid_log
+  for select to anon using (true);
+
 insert into users (phone, display_name, role, projects)
 values
   ('+628111111111', 'Fihsar', 'pm', array['BCA', 'Mandiri']),

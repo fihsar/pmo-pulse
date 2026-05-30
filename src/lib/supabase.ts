@@ -16,8 +16,15 @@ export function getServiceClient() {
 }
 
 export function getBrowserClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing required Supabase browser environment variables');
+  }
+
   return createBrowserClient(
-    requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
-    requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    supabaseUrl,
+    supabaseAnonKey
   );
 }
