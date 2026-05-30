@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getBrowserClient } from '@/lib/supabase';
 
@@ -25,6 +25,17 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<Filter>('mine');
   const [loading, setLoading] = useState(true);
 
+  const loadTasks = useCallback(async () => {
+    const sb = getBrowserClient();
+    const { data } = await sb
+      .from('tasks')
+      .select('id, task, assignee_phone, project, due_date, priority, status')
+      .order('due_date', { ascending: true, nullsFirst: false });
+
+    setTasks((data as Task[]) ?? []);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     const savedPhone = localStorage.getItem('pulse_phone');
     if (!savedPhone) {
@@ -32,8 +43,10 @@ export default function Dashboard() {
       return;
     }
 
-    setPhone(savedPhone);
-    void loadTasks();
+    queueMicrotask(() => {
+      setPhone(savedPhone);
+      void loadTasks();
+    });
 
     const sb = getBrowserClient();
     const channel = sb
@@ -44,18 +57,7 @@ export default function Dashboard() {
     return () => {
       void sb.removeChannel(channel);
     };
-  }, [router]);
-
-  async function loadTasks() {
-    const sb = getBrowserClient();
-    const { data } = await sb
-      .from('tasks')
-      .select('id, task, assignee_phone, project, due_date, priority, status')
-      .order('due_date', { ascending: true, nullsFirst: false });
-
-    setTasks((data as Task[]) ?? []);
-    setLoading(false);
-  }
+  }, [loadTasks, router]);
 
   async function toggleTask(task: Task) {
     const sb = getBrowserClient();
