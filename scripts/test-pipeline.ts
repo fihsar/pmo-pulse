@@ -24,9 +24,9 @@ async function main() {
   for (const test of tests) {
     const result = await parseTaskFromMessage(test);
     console.log(`\n📨 ${test}`);
-    console.log('   →', result ? JSON.stringify(result) : 'NULL');
+    console.log('   →', JSON.stringify(result));
 
-    if (result && result.task && result.confidence > 0.5) pass++;
+    if (result.status === 'ok' && result.task.confidence > 0.5) pass++;
   }
 
   console.log(`\n${pass}/${tests.length} parsed (target: 8+)`);

@@ -50,10 +50,58 @@ export async function POST(req: NextRequest) {
     const cmd = await handleCommand(message, userPhone);
     if (cmd.handled) return twimlReply(cmd.reply);
 
-    const parsed = await parseTaskFromMessage(message);
-    if (!parsed) return twimlReply("🤔 I couldn't parse that. Try being specific. Type 'help' for commands.");
+    const { data: openClarification } = await sb
+      .from('pending_clarifications')
+      .select('id, original_message')
+      .eq('user_phone', userPhone)
+      .is('resolved_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    const routed = await routeTask(userPhone, parsed.assignee_hint);
+    const messageForParse = openClarification
+      ? `${openClarification.original_message}\nKlarifikasi pengguna: ${message}`
+      : message;
+
+    const parsed = await parseTaskFromMessage(messageForParse);
+
+    if (parsed.status === 'needs_clarification') {
+      if (openClarification) {
+        await sb
+          .from('pending_clarifications')
+          .update({
+            question: parsed.question,
+            missing_fields: parsed.missing_fields,
+          })
+          .eq('id', openClarification.id);
+      } else {
+        await sb
+          .from('pending_clarifications')
+          .insert({
+            user_phone: userPhone,
+            original_message: message,
+            question: parsed.question,
+            missing_fields: parsed.missing_fields,
+          });
+      }
+
+      return twimlReply(`🤔 ${parsed.question}`);
+    }
+
+    if (parsed.status === 'error') {
+      return twimlReply("🤔 I couldn't parse that. Try being specific. Type 'help' for commands.");
+    }
+
+    if (openClarification) {
+      await sb
+        .from('pending_clarifications')
+        .update({ resolved_at: new Date().toISOString() })
+        .eq('id', openClarification.id);
+    }
+
+    const parsedTask = parsed.task;
+
+    const routed = await routeTask(userPhone, parsedTask.assignee_hint);
     if (!routed) return twimlReply("❌ Couldn't determine assignee. Please retry.");
 
     const { data: task, error } = await sb
@@ -61,12 +109,12 @@ export async function POST(req: NextRequest) {
       .insert({
         creator_phone: userPhone,
         assignee_phone: routed.assignee_phone,
-        task: parsed.task,
-        project: parsed.project,
-        due_date: parsed.due_date,
-        priority: parsed.priority,
+        task: parsedTask.task,
+        project: parsedTask.project,
+        due_date: parsedTask.due_date,
+        priority: parsedTask.priority,
         raw_message: message,
-        parser_confidence: parsed.confidence,
+        parser_confidence: parsedTask.confidence,
       })
       .select()
       .single();
@@ -81,36 +129,36 @@ export async function POST(req: NextRequest) {
         event_type: 'task_created',
         actor_phone: userPhone,
         target_id: task.id,
-        payload: { task: parsed.task, assignee: routed.assignee_phone, project: parsed.project },
+        payload: { task: parsedTask.task, assignee: routed.assignee_phone, project: parsedTask.project },
       }),
     ];
 
-    if (parsed.due_date) {
-      const start = new Date(parsed.due_date);
+    if (parsedTask.due_date) {
+      const start = new Date(parsedTask.due_date);
       const end = new Date(start.getTime() + 30 * 60 * 1000);
       fanOut.push(createCalendarEvent({
-        summary: parsed.task,
+        summary: parsedTask.task,
         startISO: start.toISOString(),
         endISO: end.toISOString(),
-        description: `Project: ${parsed.project ?? '—'}\nAssigned to: ${routed.assignee_name}`,
+        description: `Project: ${parsedTask.project ?? '—'}\nAssigned to: ${routed.assignee_name}`,
       }).catch((e) => console.error('cal err', e)));
     }
 
     if (!routed.is_self) {
       fanOut.push(sendWhatsApp(
         routed.assignee_phone,
-        `📌 New task assigned by ${userPhone}:\n\n*${parsed.task}*\n📅 ${formatDueDate(parsed.due_date)}\n🏷 ${parsed.project ?? '—'}`
+        `📌 New task assigned by ${userPhone}:\n\n*${parsedTask.task}*\n📅 ${formatDueDate(parsedTask.due_date)}\n🏷 ${parsedTask.project ?? '—'}`
       ).catch((e) => console.error('wa err', e)));
     }
 
     void Promise.all(fanOut);
 
-    const priIcon = parsed.priority === 'high' ? '🔴' : parsed.priority === 'low' ? '🟢' : '🟡';
+    const priIcon = parsedTask.priority === 'high' ? '🔴' : parsedTask.priority === 'low' ? '🟢' : '🟡';
     const assigneeLine = routed.is_self ? '' : `\n👤 Assigned to: ${routed.assignee_name}`;
     const overloadWarn = routed.was_overloaded ? `\n⚠️ Note: ${routed.assignee_name} has > 15 pending tasks.` : '';
-    const calLine = parsed.due_date ? '\n📅 Calendar event created' : '';
+    const calLine = parsedTask.due_date ? '\n📅 Calendar event created' : '';
 
-    return twimlReply(`✅ Saved!\n\n${priIcon} *${parsed.task}*\n📅 ${formatDueDate(parsed.due_date)}${assigneeLine}${overloadWarn}${calLine}`);
+    return twimlReply(`✅ Saved!\n\n${priIcon} *${parsedTask.task}*\n📅 ${formatDueDate(parsedTask.due_date)}${assigneeLine}${overloadWarn}${calLine}`);
   } catch (err) {
     console.error('Webhook error:', err);
     return twimlReply('⚠️ Something went wrong. Please retry.');

@@ -59,22 +59,39 @@ create table if not exists audit_log (
   timestamp timestamptz default now()
 );
 
+create table if not exists pending_clarifications (
+  id uuid primary key default gen_random_uuid(),
+  user_phone text not null references users(phone),
+  original_message text not null,
+  question text not null,
+  missing_fields text[] not null default array[]::text[],
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  resolved_at timestamptz
+);
+
 create index if not exists idx_tasks_assignee on tasks(assignee_phone);
 create index if not exists idx_tasks_status on tasks(status);
 create index if not exists idx_tasks_due on tasks(due_date);
 create index if not exists idx_audit_actor on audit_log(actor_phone);
+create index if not exists idx_pending_clarifications_user on pending_clarifications(user_phone);
+create unique index if not exists idx_pending_clarifications_open_user
+  on pending_clarifications(user_phone)
+  where resolved_at is null;
 
 alter table users enable row level security;
 alter table tasks enable row level security;
 alter table standups enable row level security;
 alter table raid_log enable row level security;
 alter table audit_log enable row level security;
+alter table pending_clarifications enable row level security;
 
 drop policy if exists "demo users readable" on users;
 drop policy if exists "demo tasks readable" on tasks;
 drop policy if exists "demo tasks updatable" on tasks;
 drop policy if exists "demo standups readable" on standups;
 drop policy if exists "demo raid readable" on raid_log;
+drop policy if exists "demo pending_clarifications_readable" on pending_clarifications;
 
 create policy "demo users readable" on users
   for select to anon using (true);
@@ -89,6 +106,9 @@ create policy "demo standups readable" on standups
   for select to anon using (true);
 
 create policy "demo raid readable" on raid_log
+  for select to anon using (true);
+
+create policy "demo pending_clarifications_readable" on pending_clarifications
   for select to anon using (true);
 
 insert into users (phone, display_name, role, projects)
@@ -111,5 +131,10 @@ $$ language plpgsql;
 
 drop trigger if exists tasks_updated_at on tasks;
 
+drop trigger if exists pending_clarifications_updated_at on pending_clarifications;
+
 create trigger tasks_updated_at before update on tasks
+  for each row execute function set_updated_at();
+
+create trigger pending_clarifications_updated_at before update on pending_clarifications
   for each row execute function set_updated_at();
