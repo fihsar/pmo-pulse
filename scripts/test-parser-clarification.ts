@@ -16,6 +16,27 @@ function run() {
     assert.deepEqual(ambiguous.missing_fields, ['due_time']);
   }
 
+  const needsAssigneeWithPartial = parseParserModelOutput(
+    JSON.stringify({
+      status: 'needs_clarification',
+      question: 'Siapa yang akan mengerjakan task ini?',
+      missing_fields: ['assignee'],
+      task: 'Weekly report',
+      assignee_hint: null,
+      due_date: '2026-06-02T08:00:00Z',
+      priority: 'high',
+      project: 'BCA',
+      confidence: 0.7,
+    })
+  );
+
+  assert.equal(needsAssigneeWithPartial.status, 'needs_clarification');
+  if (needsAssigneeWithPartial.status === 'needs_clarification') {
+    assert.equal(needsAssigneeWithPartial.missing_fields[0], 'assignee');
+    assert.equal(needsAssigneeWithPartial.partial_task?.task, 'Weekly report');
+    assert.equal(needsAssigneeWithPartial.partial_task?.project, 'BCA');
+  }
+
   const valid = parseParserModelOutput(
     JSON.stringify({
       status: 'ok',

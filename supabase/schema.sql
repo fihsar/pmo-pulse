@@ -65,6 +65,7 @@ create table if not exists pending_clarifications (
   original_message text not null,
   question text not null,
   missing_fields text[] not null default array[]::text[],
+  partial_task jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   resolved_at timestamptz
@@ -138,3 +139,6 @@ create trigger tasks_updated_at before update on tasks
 
 create trigger pending_clarifications_updated_at before update on pending_clarifications
   for each row execute function set_updated_at();
+
+alter table pending_clarifications
+  add column if not exists partial_task jsonb;

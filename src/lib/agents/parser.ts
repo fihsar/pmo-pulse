@@ -15,9 +15,11 @@ export interface ParsedTask {
 
 export type MissingField = 'due_time' | 'due_date' | 'assignee' | 'task_details' | 'project';
 
+export type PartialParsedTask = Partial<ParsedTask>;
+
 export type ParseTaskResult =
   | { status: 'ok'; task: ParsedTask }
-  | { status: 'needs_clarification'; question: string; missing_fields: MissingField[] }
+  | { status: 'needs_clarification'; question: string; missing_fields: MissingField[]; partial_task?: PartialParsedTask }
   | { status: 'error'; reason: string; raw_output?: string };
 
 function getAiClient() {
@@ -82,6 +84,25 @@ function normalizeParsedTaskPayload(value: unknown): ParsedTask | null {
   return null;
 }
 
+function normalizePartialTaskPayload(value: Record<string, unknown>): PartialParsedTask | null {
+  const task = typeof value.task === 'string' ? value.task : undefined;
+  const assignee_hint = typeof value.assignee_hint === 'string' || value.assignee_hint === null ? (value.assignee_hint as string | null | undefined) : undefined;
+  const due_date = typeof value.due_date === 'string' || value.due_date === null ? (value.due_date as string | null | undefined) : undefined;
+  const priority = value.priority === 'high' || value.priority === 'medium' || value.priority === 'low' ? value.priority : undefined;
+  const project = typeof value.project === 'string' || value.project === null ? (value.project as string | null | undefined) : undefined;
+  const confidence = typeof value.confidence === 'number' ? value.confidence : undefined;
+
+  const partial: PartialParsedTask = {};
+  if (task !== undefined) partial.task = task;
+  if (assignee_hint !== undefined) partial.assignee_hint = assignee_hint;
+  if (due_date !== undefined) partial.due_date = due_date;
+  if (priority !== undefined) partial.priority = priority;
+  if (project !== undefined) partial.project = project;
+  if (confidence !== undefined) partial.confidence = confidence;
+
+  return Object.keys(partial).length > 0 ? partial : null;
+}
+
 export function parseParserModelOutput(text: string): ParseTaskResult {
   try {
     const parsed = parseJsonLenient(text) as unknown;
@@ -106,10 +127,12 @@ export function parseParserModelOutput(text: string): ParseTaskResult {
         return { status: 'error', reason: 'Clarification response missing question' };
       }
 
+      const partialTask = normalizePartialTaskPayload(data);
       return {
         status: 'needs_clarification',
         question: question.trim(),
         missing_fields: missingFields,
+        partial_task: partialTask ?? undefined,
       };
     }
 
@@ -192,7 +215,9 @@ If the message is ambiguous or missing key details, set status=needs_clarificati
 When status=needs_clarification:
 - Fill question with one direct follow-up question in Indonesian.
 - Fill missing_fields with one or more items.
-- Do not fabricate due_date or assignee.
+- Still fill any fields you can infer with high confidence.
+- For any field listed in missing_fields, set that field to null.
+- Do not fabricate due_date or assignee if you cannot infer them.
 
 Note: Asia/Jakarta is UTC+7. 17:00 WIB = 10:00 UTC.`;
 
