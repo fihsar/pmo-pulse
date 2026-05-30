@@ -7,18 +7,25 @@ export interface RouterResult {
   was_overloaded: boolean;
 }
 
-async function getSelf(creatorPhone: string): Promise<RouterResult> {
+const DEFAULT_ASSIGNEE_PHONE = '+628115344666';
+
+export function getDefaultAssigneePhone() {
+  return process.env.DEFAULT_ASSIGNEE_PHONE || DEFAULT_ASSIGNEE_PHONE;
+}
+
+async function getDefaultAssignee(creatorPhone: string): Promise<RouterResult> {
   const sb = getServiceClient();
-  const { data: self } = await sb
+  const defaultPhone = getDefaultAssigneePhone();
+  const { data: user } = await sb
     .from('users')
     .select('display_name')
-    .eq('phone', creatorPhone)
-    .single();
+    .eq('phone', defaultPhone)
+    .maybeSingle();
 
   return {
-    assignee_phone: creatorPhone,
-    assignee_name: self?.display_name ?? 'Self',
-    is_self: true,
+    assignee_phone: defaultPhone,
+    assignee_name: user?.display_name ?? 'Fihsar',
+    is_self: defaultPhone === creatorPhone,
     was_overloaded: false,
   };
 }
@@ -29,7 +36,7 @@ export async function routeTask(
 ): Promise<RouterResult | null> {
   const sb = getServiceClient();
 
-  if (!assigneeHint) return getSelf(creatorPhone);
+  if (!assigneeHint) return getDefaultAssignee(creatorPhone);
 
   const { data: matches } = await sb
     .from('users')
@@ -37,7 +44,7 @@ export async function routeTask(
     .eq('active', true)
     .ilike('display_name', `%${assigneeHint}%`);
 
-  if (!matches || matches.length === 0) return getSelf(creatorPhone);
+  if (!matches || matches.length === 0) return getDefaultAssignee(creatorPhone);
 
   const target = matches[0];
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();

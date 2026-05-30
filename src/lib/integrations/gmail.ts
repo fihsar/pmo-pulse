@@ -19,6 +19,11 @@ function encodeMessage(value: string) {
     .replace(/=+$/, '');
 }
 
+function encodeSubjectHeader(subject: string) {
+  if (/^[\x20-\x7E]*$/.test(subject)) return subject;
+  return `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
+}
+
 export async function sendEmail(opts: {
   to: string[];
   subject: string;
@@ -27,7 +32,7 @@ export async function sendEmail(opts: {
   const gmail = google.gmail({ version: 'v1', auth: getOAuthClient() });
   const raw = encodeMessage(
     `To: ${opts.to.join(', ')}\r\n` +
-      `Subject: ${opts.subject}\r\n` +
+      `Subject: ${encodeSubjectHeader(opts.subject)}\r\n` +
       'MIME-Version: 1.0\r\n' +
       'Content-Type: text/html; charset=utf-8\r\n\r\n' +
       opts.htmlBody

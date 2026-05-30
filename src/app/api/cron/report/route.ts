@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendWeeklyReportEmail } from '@/lib/agents/report';
+import { validateCronRequest } from '@/lib/cron';
 
-export async function POST(req: NextRequest) {
-  const url = new URL(req.url);
-  const requestor = url.searchParams.get('phone') || 'system';
-  const result = await sendWeeklyReportEmail({ requestor });
+export async function GET(req: NextRequest) {
+  const validation = validateCronRequest(req);
+  if (validation) return validation;
+
+  const result = await sendWeeklyReportEmail({ requestor: 'system' });
   const status = result.status === 'sent' || result.status === 'no_tasks' ? 200 : 500;
   return NextResponse.json(result, { status });
 }
+
