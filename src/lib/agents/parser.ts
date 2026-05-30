@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { formatInTimeZone } from 'date-fns-tz';
+import { requireEnv } from '@/lib/env';
 import { getServiceClient } from '../supabase';
 
 const TZ = process.env.APP_TIMEZONE || 'Asia/Jakarta';
@@ -30,6 +31,70 @@ function getAiClient() {
   }
 
   return new GoogleGenAI({ apiKey });
+}
+
+function hasOpenAiKey() {
+  return Boolean(process.env.OPENAI_API_KEY);
+}
+
+function hasGeminiKey() {
+  return Boolean(process.env.GEMINI_API_KEY);
+}
+
+function getOpenAiModel() {
+  return process.env.OPENAI_MODEL || 'gpt-4o-mini';
+}
+
+async function callOpenAiParser(opts: { instruction: string; message: string }) {
+  const apiKey = requireEnv('OPENAI_API_KEY');
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: getOpenAiModel(),
+      temperature: 0,
+      messages: [
+        { role: 'system', content: opts.instruction },
+        { role: 'user', content: opts.message },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 500,
+    }),
+  });
+
+  if (!res.ok) {
+    const retryAfter = res.headers.get('retry-after');
+    const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
+    const body = await res.text();
+    const err = new Error(body || `OpenAI request failed (${res.status})`);
+    (err as any).status = res.status;
+    (err as any).retryAfterSeconds = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined;
+    throw err;
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string | null } }>;
+  };
+  const text = data.choices?.[0]?.message?.content ?? '';
+  return text;
+}
+
+async function callGeminiParser(opts: { instruction: string; message: string }) {
+  const response = await getAiClient().models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: opts.message,
+    config: {
+      systemInstruction: opts.instruction,
+      temperature: 0,
+      maxOutputTokens: 400,
+      responseMimeType: 'application/json',
+    },
+  });
+
+  return response.text ?? '';
 }
 
 function isParsedTask(value: unknown): value is ParsedTask {
@@ -227,34 +292,59 @@ When status=needs_clarification:
 
 Note: Asia/Jakarta is UTC+7. 17:00 WIB = 10:00 UTC.`;
 
-  try {
-    const response = await getAiClient().models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: message,
-      config: {
-        systemInstruction: instruction,
-        temperature: 0,
-        maxOutputTokens: 400,
-        responseMimeType: 'application/json',
-      },
-    });
+  const providers: Array<'openai' | 'gemini'> = [];
+  if (hasOpenAiKey()) providers.push('openai');
+  if (hasGeminiKey()) providers.push('gemini');
 
-    const text = response.text;
-    if (!text) return { status: 'error', reason: 'Empty parser response' };
-
-    const result = parseParserModelOutput(text);
-    if (result.status === 'error') return { ...result, raw_output: text };
-    return result;
-  } catch (err) {
-    const status = typeof err === 'object' && err && 'status' in err ? (err as { status?: unknown }).status : undefined;
-    const messageText = err instanceof Error ? err.message : '';
-    const isRateLimited = status === 429 || messageText.includes('RESOURCE_EXHAUSTED') || messageText.includes('Quota exceeded');
-    if (isRateLimited) {
-      const retryMatch = messageText.match(/retry in\s+(\d+(?:\.\d+)?)s/i);
-      const retryAfterSeconds = retryMatch ? Math.max(1, Math.round(Number.parseFloat(retryMatch[1]))) : undefined;
-      return { status: 'error', reason: 'rate_limited', retry_after_seconds: retryAfterSeconds };
-    }
-    console.error('Parser error:', err);
-    return { status: 'error', reason: 'Parser request failed' };
+  if (providers.length === 0) {
+    return { status: 'error', reason: 'No parser provider is configured' };
   }
+
+  let lastError: ParseTaskResult | null = null;
+
+  for (const provider of providers) {
+    try {
+      const text = provider === 'openai'
+        ? await callOpenAiParser({ instruction, message })
+        : await callGeminiParser({ instruction, message });
+
+      if (!text) {
+        lastError = { status: 'error', reason: 'Empty parser response' };
+        continue;
+      }
+
+      const result = parseParserModelOutput(text);
+      if (result.status === 'error') {
+        lastError = { ...result, raw_output: text };
+        continue;
+      }
+
+      return result;
+    } catch (err) {
+      const status = typeof err === 'object' && err && 'status' in err ? (err as { status?: unknown }).status : undefined;
+      const messageText = err instanceof Error ? err.message : '';
+
+      const openAiRetryAfterSeconds = typeof err === 'object' && err && 'retryAfterSeconds' in err
+        ? (err as { retryAfterSeconds?: unknown }).retryAfterSeconds
+        : undefined;
+
+      const isRateLimited = status === 429 || messageText.includes('RESOURCE_EXHAUSTED') || messageText.includes('Quota exceeded');
+      if (isRateLimited) {
+        const geminiRetryMatch = messageText.match(/retry in\s+(\d+(?:\.\d+)?)s/i);
+        const geminiRetryAfterSeconds = geminiRetryMatch ? Math.max(1, Math.round(Number.parseFloat(geminiRetryMatch[1]))) : undefined;
+
+        const retryAfterSeconds = typeof openAiRetryAfterSeconds === 'number'
+          ? openAiRetryAfterSeconds
+          : geminiRetryAfterSeconds;
+
+        lastError = { status: 'error', reason: 'rate_limited', retry_after_seconds: retryAfterSeconds };
+        continue;
+      }
+
+      console.error('Parser error:', err);
+      lastError = { status: 'error', reason: 'Parser request failed' };
+    }
+  }
+
+  return lastError ?? { status: 'error', reason: 'Parser request failed' };
 }
