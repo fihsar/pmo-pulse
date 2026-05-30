@@ -20,7 +20,7 @@ export type PartialParsedTask = Partial<ParsedTask>;
 export type ParseTaskResult =
   | { status: 'ok'; task: ParsedTask }
   | { status: 'needs_clarification'; question: string; missing_fields: MissingField[]; partial_task?: PartialParsedTask }
-  | { status: 'error'; reason: string; raw_output?: string };
+  | { status: 'error'; reason: string; raw_output?: string; retry_after_seconds?: number };
 
 function getAiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -67,6 +67,9 @@ function parseJsonLenient(text: string): unknown {
   } catch {
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
+    if (start !== -1 && end === -1) {
+      throw new Error('Incomplete JSON object');
+    }
     if (start === -1 || end === -1 || end <= start) {
       throw new Error('No JSON object found');
     }
@@ -142,8 +145,11 @@ export function parseParserModelOutput(text: string): ParseTaskResult {
     }
 
     return { status: 'error', reason: 'Unknown parser status' };
-  } catch {
-    return { status: 'error', reason: 'Parser returned invalid JSON' };
+  } catch (err) {
+    const reason = err instanceof Error && err.message === 'Incomplete JSON object'
+      ? 'Parser returned incomplete JSON'
+      : 'Parser returned invalid JSON';
+    return { status: 'error', reason };
   }
 }
 
@@ -240,6 +246,14 @@ Note: Asia/Jakarta is UTC+7. 17:00 WIB = 10:00 UTC.`;
     if (result.status === 'error') return { ...result, raw_output: text };
     return result;
   } catch (err) {
+    const status = typeof err === 'object' && err && 'status' in err ? (err as { status?: unknown }).status : undefined;
+    const messageText = err instanceof Error ? err.message : '';
+    const isRateLimited = status === 429 || messageText.includes('RESOURCE_EXHAUSTED') || messageText.includes('Quota exceeded');
+    if (isRateLimited) {
+      const retryMatch = messageText.match(/retry in\s+(\d+(?:\.\d+)?)s/i);
+      const retryAfterSeconds = retryMatch ? Math.max(1, Math.round(Number.parseFloat(retryMatch[1]))) : undefined;
+      return { status: 'error', reason: 'rate_limited', retry_after_seconds: retryAfterSeconds };
+    }
     console.error('Parser error:', err);
     return { status: 'error', reason: 'Parser request failed' };
   }

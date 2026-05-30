@@ -223,6 +223,15 @@ export async function POST(req: NextRequest) {
         },
       }).catch((err) => console.error('Audit log failed:', err));
 
+      if (parsed.reason === 'rate_limited') {
+        const retry = parsed.retry_after_seconds ? ` Please try again in ~${parsed.retry_after_seconds}s.` : ' Please try again in a moment.';
+        return twimlReply(`⚠️ I'm temporarily rate-limited.${retry}`);
+      }
+
+      if (parsed.reason === 'Parser returned incomplete JSON') {
+        return twimlReply("⚠️ The AI response was cut off. Please retry in a moment.");
+      }
+
       return twimlReply("🤔 I couldn't parse that. Try being specific. Type 'help' for commands.");
     }
 
