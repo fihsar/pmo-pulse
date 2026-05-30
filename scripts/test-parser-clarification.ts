@@ -30,11 +30,11 @@ function run() {
     })
   );
 
-  assert.equal(needsAssigneeWithPartial.status, 'needs_clarification');
-  if (needsAssigneeWithPartial.status === 'needs_clarification') {
-    assert.equal(needsAssigneeWithPartial.missing_fields[0], 'assignee');
-    assert.equal(needsAssigneeWithPartial.partial_task?.task, 'Weekly report');
-    assert.equal(needsAssigneeWithPartial.partial_task?.project, 'BCA');
+  assert.equal(needsAssigneeWithPartial.status, 'ok');
+  if (needsAssigneeWithPartial.status === 'ok') {
+    assert.equal(needsAssigneeWithPartial.task.task, 'Weekly report');
+    assert.equal(needsAssigneeWithPartial.task.project, 'BCA');
+    assert.equal(needsAssigneeWithPartial.task.assignee_hint, null);
   }
 
   const valid = parseParserModelOutput(

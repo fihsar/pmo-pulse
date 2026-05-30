@@ -196,6 +196,29 @@ export function parseParserModelOutput(text: string): ParseTaskResult {
       }
 
       const partialTask = normalizePartialTaskPayload(data);
+
+      const optionalMissingFields: MissingField[] = ['assignee', 'project', 'due_date', 'due_time'];
+      const canProceedWithoutClarification = missingFields.length > 0
+        && missingFields.every((field) => optionalMissingFields.includes(field))
+        && Boolean(partialTask?.task);
+
+      if (canProceedWithoutClarification) {
+        const priority = partialTask?.priority ?? 'medium';
+        const confidence = typeof partialTask?.confidence === 'number' ? partialTask.confidence : 0.6;
+
+        return {
+          status: 'ok',
+          task: {
+            task: partialTask?.task ?? '',
+            assignee_hint: partialTask?.assignee_hint ?? null,
+            due_date: partialTask?.due_date ?? null,
+            priority,
+            project: partialTask?.project ?? null,
+            confidence,
+          },
+        };
+      }
+
       return {
         status: 'needs_clarification',
         question: question.trim(),
@@ -282,7 +305,10 @@ Indonesian time expressions:
 
 Priority cues: "penting/urgent/ASAP/harus" → high; default medium; "santai/kapan-kapan" → low.
 
-If the message is ambiguous or missing key details, set status=needs_clarification.
+Important:
+- assignee_hint, project, due_date are OPTIONAL. If missing, set them to null and still return status=ok.
+- Only use status=needs_clarification when the message is truly ambiguous (e.g. unclear time like "jam 5" without pagi/sore) or the task description is too vague to act on.
+
 When status=needs_clarification:
 - Fill question with one direct follow-up question in Indonesian.
 - Fill missing_fields with one or more items.
