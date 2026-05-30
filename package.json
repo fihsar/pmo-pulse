@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:demo": "tsx scripts/test-demo.ts",
     "test:pipeline": "tsx scripts/test-pipeline.ts"
   },
   "dependencies": {
