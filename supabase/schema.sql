@@ -21,6 +21,8 @@ create table if not exists tasks (
   status text default 'pending' check (status in ('pending', 'in_progress', 'done', 'blocked', 'cancelled')),
   raw_message text,
   parser_confidence numeric(3, 2),
+  due_soon_reminded_at timestamptz,
+  overdue_reminded_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   completed_at timestamptz
@@ -142,3 +144,9 @@ create trigger pending_clarifications_updated_at before update on pending_clarif
 
 alter table pending_clarifications
   add column if not exists partial_task jsonb;
+
+alter table tasks
+  add column if not exists due_soon_reminded_at timestamptz;
+
+alter table tasks
+  add column if not exists overdue_reminded_at timestamptz;
