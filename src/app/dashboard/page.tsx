@@ -33,12 +33,12 @@ export default function Dashboard() {
     }
 
     setPhone(savedPhone);
-    void loadTasks(savedPhone);
+    void loadTasks();
 
     const sb = getBrowserClient();
     const channel = sb
       .channel('tasks-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => void loadTasks(savedPhone))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => void loadTasks())
       .subscribe();
 
     return () => {
@@ -46,7 +46,7 @@ export default function Dashboard() {
     };
   }, [router]);
 
-  async function loadTasks(_: string) {
+  async function loadTasks() {
     const sb = getBrowserClient();
     const { data } = await sb
       .from('tasks')
