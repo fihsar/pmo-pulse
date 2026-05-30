@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import twilio from 'twilio';
 import { logAuditEvent } from '@/lib/agents/audit';
 import { parseTaskFromMessage } from '@/lib/agents/parser';
@@ -30,6 +31,10 @@ function formatDueDate(dueDate: string | null) {
     minute: '2-digit',
     timeZone: 'Asia/Jakarta',
   });
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 export async function POST(req: NextRequest) {
@@ -66,6 +71,16 @@ export async function POST(req: NextRequest) {
     const parsed = await parseTaskFromMessage(messageForParse);
 
     if (parsed.status === 'needs_clarification') {
+      void logAuditEvent({
+        event_type: 'task_parse_needs_clarification',
+        actor_phone: userPhone,
+        payload: {
+          missing_fields: parsed.missing_fields,
+          has_open_clarification: Boolean(openClarification),
+          message_hash: sha256(messageForParse),
+        },
+      }).catch((err) => console.error('Audit log failed:', err));
+
       if (openClarification) {
         await sb
           .from('pending_clarifications')
@@ -89,6 +104,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (parsed.status === 'error') {
+      const logIncludeMessage = process.env.LOG_PARSER_MESSAGES === 'true';
+      const logIncludeModelOutput = process.env.LOG_PARSER_MODEL_OUTPUT === 'true';
+
+      void logAuditEvent({
+        event_type: 'task_parse_failed',
+        actor_phone: userPhone,
+        payload: {
+          reason: parsed.reason,
+          has_open_clarification: Boolean(openClarification),
+          message_hash: sha256(messageForParse),
+          message: logIncludeMessage ? messageForParse : undefined,
+          model_output: logIncludeModelOutput ? parsed.raw_output?.slice(0, 2000) : undefined,
+        },
+      }).catch((err) => console.error('Audit log failed:', err));
+
       return twimlReply("🤔 I couldn't parse that. Try being specific. Type 'help' for commands.");
     }
 

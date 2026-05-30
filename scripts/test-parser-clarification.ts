@@ -37,6 +37,41 @@ function run() {
   const invalid = parseParserModelOutput('not json');
   assert.equal(invalid.status, 'error');
 
+  const missingStatus = parseParserModelOutput(
+    JSON.stringify({
+      task: 'Submit timesheet',
+      assignee_hint: null,
+      due_date: '2026-06-01T10:00:00Z',
+      priority: 'medium',
+      project: null,
+      confidence: 0.88,
+    })
+  );
+
+  assert.equal(missingStatus.status, 'ok');
+  if (missingStatus.status === 'ok') {
+    assert.equal(missingStatus.task.task, 'Submit timesheet');
+  }
+
+  const nestedTask = parseParserModelOutput(
+    JSON.stringify({
+      status: 'ok',
+      task: {
+        task: 'Submit timesheet',
+        assignee_hint: null,
+        due_date: '2026-06-01T10:00:00Z',
+        priority: 'medium',
+        project: null,
+        confidence: 0.88,
+      },
+    })
+  );
+
+  assert.equal(nestedTask.status, 'ok');
+  if (nestedTask.status === 'ok') {
+    assert.equal(nestedTask.task.task, 'Submit timesheet');
+  }
+
   console.log('Parser clarification tests passed');
 }
 

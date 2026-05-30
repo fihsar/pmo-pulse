@@ -18,7 +18,7 @@ export type MissingField = 'due_time' | 'due_date' | 'assignee' | 'task_details'
 export type ParseTaskResult =
   | { status: 'ok'; task: ParsedTask }
   | { status: 'needs_clarification'; question: string; missing_fields: MissingField[] }
-  | { status: 'error'; reason: string };
+  | { status: 'error'; reason: string; raw_output?: string };
 
 function getAiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -59,9 +59,32 @@ function hasAmbiguousHour(message: string) {
   return hasPlainHour && !hasQualifier && !has24hFormat;
 }
 
+function parseJsonLenient(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) {
+      throw new Error('No JSON object found');
+    }
+
+    return JSON.parse(text.slice(start, end + 1)) as unknown;
+  }
+}
+
+function normalizeParsedTaskPayload(value: unknown): ParsedTask | null {
+  if (isParsedTask(value)) return value;
+  if (value && typeof value === 'object' && 'task' in (value as Record<string, unknown>)) {
+    const taskPayload = (value as Record<string, unknown>).task;
+    if (isParsedTask(taskPayload)) return taskPayload;
+  }
+  return null;
+}
+
 export function parseParserModelOutput(text: string): ParseTaskResult {
   try {
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = parseJsonLenient(text) as unknown;
     if (!parsed || typeof parsed !== 'object') {
       return { status: 'error', reason: 'Invalid parser response object' };
     }
@@ -70,11 +93,8 @@ export function parseParserModelOutput(text: string): ParseTaskResult {
     const status = data.status;
 
     if (status === 'ok') {
-      if (isParsedTask(data)) {
-        return { status: 'ok', task: data };
-      }
-
-      return { status: 'error', reason: 'Invalid parsed task payload' };
+      const normalized = normalizeParsedTaskPayload(data);
+      return normalized ? { status: 'ok', task: normalized } : { status: 'error', reason: 'Invalid parsed task payload' };
     }
 
     if (status === 'needs_clarification') {
@@ -91,6 +111,11 @@ export function parseParserModelOutput(text: string): ParseTaskResult {
         question: question.trim(),
         missing_fields: missingFields,
       };
+    }
+
+    if (status === undefined) {
+      const normalized = normalizeParsedTaskPayload(data);
+      return normalized ? { status: 'ok', task: normalized } : { status: 'error', reason: 'Unknown parser status' };
     }
 
     return { status: 'error', reason: 'Unknown parser status' };
@@ -186,7 +211,9 @@ Note: Asia/Jakarta is UTC+7. 17:00 WIB = 10:00 UTC.`;
     const text = response.text;
     if (!text) return { status: 'error', reason: 'Empty parser response' };
 
-    return parseParserModelOutput(text);
+    const result = parseParserModelOutput(text);
+    if (result.status === 'error') return { ...result, raw_output: text };
+    return result;
   } catch (err) {
     console.error('Parser error:', err);
     return { status: 'error', reason: 'Parser request failed' };
